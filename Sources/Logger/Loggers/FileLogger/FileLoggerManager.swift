@@ -19,13 +19,15 @@ class FileLoggerManager {
     // MARK: - Stored properties
 
     private let logFilePathExtension: String = "log"
-
+    private let numberOfLogFiles: Int
     private let fileManager: FileManager
     private let userDefaults: UserDefaults
     private let suiteName: String?
     private let dateFormatter: DateFormatter
-    let logDirURL: URL
     private let externalLogger: (String) -> ()
+    private let fileLogEntryParser: FileLogEntryParser
+
+    let logDirURL: URL
 
     var dateOfLastLog: Date {
         didSet {
@@ -38,8 +40,6 @@ class FileLoggerManager {
             userDefaults.set(currentLogFileNumber, forKey: Constants.UserDefaultsKeys.currentLogFileNumber)
         }
     }
-
-    private let numberOfLogFiles: Int
 
     private var currentWritableFileHandle: FileHandle? {
         willSet {
@@ -65,6 +65,16 @@ class FileLoggerManager {
         self.externalLogger = externalLogger
         self.suiteName = suiteName
         self.logDirURL = try fileManager.documentDirectoryURL(withName: "logs", usingSuiteName: logFilePathExtension)
+
+        // TODO: Inject this
+        self.fileLogEntryParser = .init(
+            logFileRecordSeparator: Constants.Separators.logFileRecordSeparator,
+            logHeaderOpeningSeparator: Constants.Separators.logHeaderOpeningSeparator,
+            logHeaderClosingSeparator: Constants.Separators.logHeaderClosingSeparator,
+            logLocationSeparator: Constants.Separators.logLocationSeparator,
+            lineIdentifier: Constants.Separators.lineSeparator,
+            messageSeparator: Constants.Separators.messageSeparator
+        )
 
         try fileManager.createDirectoryIfNotExists(at: logDirURL)
 
@@ -146,7 +156,7 @@ class FileLoggerManager {
         do {
             try refreshCurrentLogFileStatus()
 
-            let contentToAppend = "\(Constants.FileLogger.logFileRecordSeparator) \(logEntry)\n"
+            let contentToAppend = "\(Constants.Separators.logFileRecordSeparator) \(logEntry)\n"
 
             let fileHandle = try unwrapped(currentWritableFileHandle)
             fileHandle.seekToEndOfFile()
@@ -189,9 +199,8 @@ class FileLoggerManager {
     /// - Returns: array of LogFileRecord instances
     func gettingRecordsFromLogFile(at fileUrlToRead: URL) throws -> [FileLogEntry] {
         try fileManager.contents(fromFileIfExists: fileUrlToRead)
-            .components(separatedBy: Constants.FileLogger.logFileRecordSeparator)
-            .dropFirst()
-            .map { FileLogEntry(rawValue: $0, dateFormatter: dateFormatter) }
+            .components(separatedBy: Constants.Separators.logFileRecordSeparator)
+            .map { try fileLogEntryParser.parse($0, dateFormatter: dateFormatter) }
             .compactMap { $0 }
     }
 }
